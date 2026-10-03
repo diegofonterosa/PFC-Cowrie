@@ -16,6 +16,10 @@ Uso:
   pip install oci
   python oci_a1_retry.py --ssh-key ~/.ssh/id_ed25519.pub
   python oci_a1_retry.py --ssh-key clave.pub --intervalo 90 --ocpus 1 --memoria 6
+
+Avisos al movil (opcional) con ntfy: instala la app ntfy, suscribete a un
+tema con nombre dificil de adivinar y pasalo con --ntfy:
+  python oci_a1_retry.py --ssh-key clave.pub --ntfy pfc-cowrie-x7k2m9qa
 """
 
 import argparse
@@ -24,6 +28,7 @@ import os
 import random
 import sys
 import time
+import urllib.request
 
 try:
     import oci
@@ -36,6 +41,32 @@ SHAPE = "VM.Standard.A1.Flex"
 
 def log(msg):
     print(f"[{dt.datetime.now():%H:%M:%S}] {msg}", flush=True)
+
+
+# --- Avisos con ntfy (https://ntfy.sh) --------------------------------------
+NTFY = {"tema": None, "servidor": "https://ntfy.sh"}
+
+
+def avisar(titulo, mensaje, prioridad="default", etiquetas=""):
+    """Envia una notificacion push. Si falla, solo lo registra: nunca para el script."""
+    if not NTFY["tema"]:
+        return
+    req = urllib.request.Request(
+        f"{NTFY['servidor'].rstrip('/')}/{NTFY['tema']}",
+        data=mensaje.encode("utf-8"),
+        headers={"Title": titulo, "Priority": prioridad, "Tags": etiquetas},  # cabeceras ASCII
+        method="POST",
+    )
+    try:
+        urllib.request.urlopen(req, timeout=15).close()
+    except Exception as e:  # noqa: BLE001 - un aviso fallido no debe detener nada
+        log(f"[aviso] No se pudo enviar la notificacion ntfy: {e}")
+
+
+def fatal(msg):
+    log(msg)
+    avisar("PFC-Cowrie: script detenido", msg, "high", "warning")
+    sys.exit(1)
 
 
 # --- Descubrimiento de recursos --------------------------------------------
@@ -107,7 +138,10 @@ def main():
     ap.add_argument("--subnet", help="OCID de la subnet si hay varias publicas")
     ap.add_argument("--config", default="~/.oci/config", help="Fichero de configuracion OCI")
     ap.add_argument("--perfil", default="DEFAULT", help="Perfil dentro del fichero de configuracion")
+    ap.add_argument("--ntfy", metavar="TEMA", help="Tema de ntfy para recibir avisos en el movil")
+    ap.add_argument("--ntfy-servidor", default="https://ntfy.sh", help=argparse.SUPPRESS)
     args = ap.parse_args()
+    NTFY["tema"], NTFY["servidor"] = args.ntfy, args.ntfy_servidor
 
     ssh_path = os.path.expanduser(args.ssh_key)
     if not ssh_path.endswith(".pub"):
@@ -135,6 +169,11 @@ def main():
     log(f"Imagen:   {img.display_name}")
     log(f"Subnet:   {sub.display_name}")
     log(f"Forma:    {SHAPE} ({args.ocpus:g} OCPU, {args.memoria:g} GB)")
+    if NTFY["tema"]:
+        avisar("PFC-Cowrie: script en marcha",
+               f"Buscando hueco para {SHAPE} cada {args.intervalo} s. "
+               "Si te llega este aviso, las notificaciones funcionan.", "low", "hourglass")
+        log(f"Avisos ntfy activados en el tema '{NTFY['tema']}'.")
 
     detalles = oci.core.models.LaunchInstanceDetails(
         availability_domain=ad,
@@ -168,8 +207,7 @@ def main():
                 log(f"Intento {intento}: error temporal de Oracle ({e.code}). Reintento en {espera} s.")
             else:
                 # Errores de configuracion o limites: reintentar no sirve
-                log(f"Error {e.status} {e.code}: {e.message}")
-                sys.exit(1)
+                fatal(f"Error {e.status} {e.code}: {e.message}")
         except (oci.exceptions.RequestException, ConnectionError) as e:
             log(f"Intento {intento}: fallo de red ({type(e).__name__}). Reintento en {espera} s.")
         time.sleep(espera + random.randint(0, 10))
@@ -187,6 +225,9 @@ def main():
     print(f"  Conexion:  ssh -i <tu_clave_privada> ubuntu@{ip}")
     print("=" * 60)
     print("\a")  # pitido
+    avisar("PFC-Cowrie: INSTANCIA LISTA",
+           f"{inst.display_name} creada tras {intento} intentos.\n"
+           f"IP publica: {ip}\nssh ubuntu@{ip}", "urgent", "tada")
 
 
 if __name__ == "__main__":
@@ -194,3 +235,9 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         log("Detenido por el usuario.")
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001 - avisar de cualquier fallo inesperado
+        log(f"Error inesperado: {type(e).__name__}: {e}")
+        avisar("PFC-Cowrie: script detenido", f"Error inesperado: {type(e).__name__}: {e}", "high", "warning")
+        raise
