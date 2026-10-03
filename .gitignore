@@ -1,0 +1,17 @@
+﻿# Logs reales de Cowrie
+logs/*.json
+logs/*.json.*
+!logs/sample/
+
+# Salida temporal
+output/
+
+# Sistema
+*.pyc
+__pycache__/
+.DS_Store
+Thumbs.db
+
+# Claves SSH
+*.pem
+*.key
