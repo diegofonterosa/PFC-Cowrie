@@ -1,0 +1,39 @@
+# =====================================================================
+#  /etc/systemd/system/cowrie.service - Honeypot Cowrie (PFC-Cowrie)
+#  Arranca Cowrie en primer plano bajo systemd, como usuario sin
+#  privilegios y con el sistema de ficheros en solo lectura salvo var/.
+# =====================================================================
+[Unit]
+Description=Cowrie SSH honeypot (PFC-Cowrie)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cowrie
+Group=cowrie
+WorkingDirectory=/home/cowrie/honeypot
+# COWRIE_STDOUT=yes: primer plano, salida al journal (journalctl -u cowrie)
+Environment=COWRIE_STDOUT=yes
+Environment=AUTHBIND_ENABLED=no
+ExecStart=/home/cowrie/honeypot/cowrie-env/bin/cowrie start
+Restart=always
+RestartSec=10
+
+# Confinamiento: aunque alguien escapase de Cowrie, no podria escribir
+# fuera de var/ ni ganar privilegios.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/cowrie/honeypot/var
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+CapabilityBoundingSet=
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

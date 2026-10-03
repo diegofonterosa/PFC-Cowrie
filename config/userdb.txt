@@ -1,0 +1,24 @@
+# =====================================================================
+#  userdb.txt - Credenciales aceptadas por el honeypot (PFC-Cowrie)
+#  Ruta en el servidor: /home/cowrie/honeypot/etc/userdb.txt
+#
+#  IMPORTANTE: este fichero debe ser ASCII puro (sin tildes ni enies).
+#  Cowrie 3.x lo lee como ASCII; un solo caracter no ASCII hace que
+#  rechace TODOS los logins sin dar ningun aviso visible.
+#
+#  Formato:  usuario:x:password  (gana la primera linea que coincide)
+#  '*' = cualquiera  /  '!' delante = denegar.
+#
+#  Estrategia: se rechazan las passwords mas probadas (root, 123456,
+#  admin...) para que los bots sigan intentandolo y registren mas
+#  credenciales; cualquier otra password para root/admin/ubuntu entra,
+#  de modo que tambien se capturan los comandos tras el acceso.
+# =====================================================================
+root:x:!root
+root:x:!123456
+root:x:!password
+root:x:*
+admin:x:!admin
+admin:x:*
+ubuntu:x:!ubuntu
+ubuntu:x:*

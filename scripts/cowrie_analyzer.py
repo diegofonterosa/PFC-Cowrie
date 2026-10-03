@@ -20,6 +20,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import sys
 from collections import Counter
 from datetime import datetime
@@ -119,6 +120,24 @@ def analyze_downloads(events):
         if url and url not in shasums:
             shasums[url] = sha
     return urls, shasums
+
+
+URL_RE = re.compile(r"(?:https?|ftp|tftp)://[^\s'\";|&)<>`]+", re.IGNORECASE)
+
+
+def analyze_command_urls(events):
+    """URLs que aparecen en los comandos (wget, curl, tftp...).
+
+    Cowrie solo genera cowrie.session.file_download si la descarga
+    termina bien. Muchos servidores de malware ya están caídos cuando el
+    bot ejecuta el comando, así que estas URLs se extraen también de los
+    comandos: son indicadores de compromiso (IOC) aunque no haya fichero.
+    """
+    urls = Counter()
+    for e in filter_events(events, "cowrie.command.input"):
+        for url in URL_RE.findall(e.get("input", "")):
+            urls[url] += 1
+    return urls
 
 
 def analyze_timeline(events):
@@ -299,7 +318,7 @@ def plot_geo_pie(geo_data, ip_counter, filename):
 # ─── Informe en texto ─────────────────────────────────────────────────
 def write_report(output_dir, ip_counter, num_sessions, login_data,
                  cmd_counter, download_urls, download_shasums,
-                 daily, geo_data):
+                 daily, geo_data, command_urls=None):
     """Genera un resumen en texto plano."""
     path = os.path.join(output_dir, "informe_resumen.txt")
     with open(path, "w", encoding="utf-8") as f:
@@ -365,6 +384,13 @@ def write_report(output_dir, ip_counter, num_sessions, login_data,
                 f.write(f"        SHA256: {sha}\n")
             f.write("\n")
 
+        # URLs en comandos (IOC aunque la descarga fallara)
+        if command_urls:
+            f.write("─── URLs EN COMANDOS (IOC: intentos de descarga) ───\n\n")
+            for url, count in command_urls.most_common():
+                f.write(f"  {count:>4}x  {url}\n")
+            f.write("\n")
+
         f.write("=" * 70 + "\n")
         f.write("Generado por cowrie_analyzer.py\n")
 
@@ -422,7 +448,9 @@ def main():
     print("\n[4/6] Analizando comandos y descargas...")
     cmd_counter = analyze_commands(events)
     download_urls, download_shasums = analyze_downloads(events)
-    print(f"  {sum(cmd_counter.values())} comandos, {sum(download_urls.values())} descargas")
+    command_urls = analyze_command_urls(events)
+    print(f"  {sum(cmd_counter.values())} comandos, {sum(download_urls.values())} descargas, "
+          f"{len(command_urls)} URLs distintas en comandos")
 
     daily = analyze_timeline(events)
 
@@ -464,7 +492,7 @@ def main():
     write_report(
         args.output, ip_counter, num_sessions, login_data,
         cmd_counter, download_urls, download_shasums,
-        daily, geo_data
+        daily, geo_data, command_urls
     )
 
     print(f"\n✓ Análisis completo. Resultados en: {args.output}/\n")
