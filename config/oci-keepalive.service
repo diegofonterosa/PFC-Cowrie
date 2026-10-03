@@ -1,0 +1,33 @@
+# =====================================================================
+#  /etc/systemd/system/oci-keepalive.service (PFC-Cowrie)
+#  Reserva el 25 % de la RAM para que Oracle no considere ociosa la
+#  instancia A1 (politica de recuperacion de instancias Always Free).
+# =====================================================================
+[Unit]
+Description=Reserva de memoria anti-recuperacion de instancias ociosas OCI (PFC-Cowrie)
+After=multi-user.target
+
+[Service]
+Type=simple
+Environment=KEEPALIVE_PERCENT=25
+ExecStart=/usr/bin/python3 /usr/local/lib/pfc-cowrie/oci-keepalive.py
+Restart=always
+RestartSec=30
+Nice=19
+
+# La reserva tiene que estar en RAM: si se fuese a swap no contaria.
+MemorySwapMax=0
+
+# Confinamiento: usuario efimero sin privilegios ni acceso a ficheros
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

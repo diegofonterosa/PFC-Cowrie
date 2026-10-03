@@ -7,6 +7,8 @@
 #  - Instala Cowrie 3.1.0 en un entorno virtual de Python
 #  - Aplica cowrie.cfg y userdb.txt del proyecto
 #  - Lo deja como servicio de systemd escuchando en el puerto 2222
+#  - En instancias A1, activa oci-keepalive (reserva de memoria para que
+#    Oracle no recupere la instancia por considerarla ociosa)
 #
 #  Uso:  sudo bash 02_instalar_cowrie.sh   (despues de 01_hardening.sh)
 # =====================================================================
@@ -62,6 +64,26 @@ systemctl is-active --quiet cowrie || die "Cowrie no arranca. Revisa: journalctl
 ss -ltn "sport = :2222" | grep -q LISTEN || die "Cowrie no escucha en 2222. Revisa: journalctl -u cowrie"
 
 info "Cowrie instalado y escuchando en el puerto 2222."
+
+# --- Reserva de memoria (solo instancias A1 de Oracle) ------------------
+# Oracle recupera instancias Always Free con CPU, red y memoria (en A1)
+# por debajo del 20 % durante 7 dias. Un honeypot cumple las tres; con
+# mantener la memoria por encima del 20 % deja de considerarse ociosa.
+mem_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+if [[ "$(uname -m)" == "aarch64" ]] && (( mem_mb >= 2048 )); then
+  [[ -f "$SCRIPT_DIR/oci-keepalive.py" && -f "$SCRIPT_DIR/oci-keepalive.service" ]] \
+    || die "Faltan oci-keepalive.py u oci-keepalive.service junto al script."
+  info "Instancia A1 con ${mem_mb} MB: activando la reserva de memoria (25 %)..."
+  install -D -m 644 "$SCRIPT_DIR/oci-keepalive.py" /usr/local/lib/pfc-cowrie/oci-keepalive.py
+  install -m 644 "$SCRIPT_DIR/oci-keepalive.service" /etc/systemd/system/oci-keepalive.service
+  systemctl daemon-reload
+  systemctl enable --now oci-keepalive.service
+  sleep 5
+  systemctl is-active --quiet oci-keepalive || die "oci-keepalive no arranca: journalctl -u oci-keepalive"
+  free -h | awk 'NR<=2'
+else
+  info "No es una A1 con 2 GB o mas: la reserva de memoria no hace falta."
+fi
 cat <<EOF
 
   PRUEBA (desde tu equipo o Kali, todavia por el puerto 2222):
