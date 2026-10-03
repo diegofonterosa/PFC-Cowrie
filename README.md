@@ -21,7 +21,7 @@ Despliegue de un honeypot SSH expuesto a Internet utilizando [Cowrie](https://gi
 PFC-Cowrie/
 ├── docs/              # Anteproyecto y memoria del proyecto
 ├── scripts/           # Scripts Python de análisis y generación de datos
-├── config/            # Ficheros de configuración (Cowrie, iptables, UFW)
+├── config/            # Scripts de despliegue y configuración (Cowrie, SSH, iptables, systemd)
 ├── logs/
 │   └── sample/        # Logs de ejemplo para pruebas
 ├── capturas/          # Capturas de pantalla organizadas por fase
