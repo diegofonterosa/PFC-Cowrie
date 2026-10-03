@@ -45,13 +45,17 @@ python3 scripts/cowrie_analyzer.py cowrie.json --output graficas/
 
 # Analizar logs (sin conexión a Internet)
 python3 scripts/cowrie_analyzer.py cowrie.json --output graficas/ --no-geo
+
+# Pruebas del clasificador MITRE ATT&CK
+python3 scripts/test_mitre_mapping.py
 ```
 
 El script genera:
 - Ranking de IPs atacantes con geolocalización
 - Credenciales más probadas (usuario y contraseña)
 - Comandos más ejecutados tras el acceso
-- Ficheros/malware descargados
+- Ficheros/malware descargados y URLs de descarga en los comandos (IOC)
+- Clasificación de la actividad en técnicas MITRE ATT&CK con evidencias y recomendaciones (`mitre_mapping.py`), también exportada a `mitre_mapping.csv`
 - Gráficas en PNG y un informe de resumen en texto
 
 ## Herramientas

@@ -8,8 +8,9 @@ Procesa los ficheros cowrie.json y genera:
   2. Credenciales más probadas (usuario y contraseña)
   3. Comandos más ejecutados tras el acceso
   4. Ficheros/malware descargados
-  5. Resumen general de la actividad
-  6. Gráficas en PNG (matplotlib)
+  5. Clasificación de la actividad en MITRE ATT&CK (mitre_mapping.py)
+  6. Resumen general de la actividad
+  7. Gráficas en PNG (matplotlib) y tabla MITRE en CSV
 
 Uso:
   python3 cowrie_analyzer.py cowrie.json
@@ -17,6 +18,7 @@ Uso:
 """
 
 import argparse
+import csv
 import glob
 import json
 import os
@@ -24,6 +26,9 @@ import re
 import sys
 from collections import Counter
 from datetime import datetime
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from mitre_mapping import mapear  # noqa: E402
 
 import matplotlib
 matplotlib.use("Agg")
@@ -318,7 +323,7 @@ def plot_geo_pie(geo_data, ip_counter, filename):
 # ─── Informe en texto ─────────────────────────────────────────────────
 def write_report(output_dir, ip_counter, num_sessions, login_data,
                  cmd_counter, download_urls, download_shasums,
-                 daily, geo_data, command_urls=None):
+                 daily, geo_data, command_urls=None, mitre=None, sin_clasificar=None):
     """Genera un resumen en texto plano."""
     path = os.path.join(output_dir, "informe_resumen.txt")
     with open(path, "w", encoding="utf-8") as f:
@@ -391,10 +396,44 @@ def write_report(output_dir, ip_counter, num_sessions, login_data,
                 f.write(f"  {count:>4}x  {url}\n")
             f.write("\n")
 
+        # MITRE ATT&CK
+        if mitre:
+            f.write("─── MAPEO MITRE ATT&CK ───\n\n")
+            tactica = None
+            for t in mitre:
+                if t["tactica"] != tactica:
+                    tactica = t["tactica"]
+                    f.write(f"  [{tactica}]\n")
+                f.write(f"    {t['id']:<10} {t['nombre']}\n")
+                f.write(f"               {t['sesiones']} sesiones · {t['ejecuciones']} eventos · "
+                        f"{t['ips']} IPs\n")
+                for ej, n in t["ejemplos"][:2]:
+                    f.write(f"               ej.: {ej[:70]}  ({n}x)\n")
+                f.write(f"               Recomendación: {t['recomendacion']}\n")
+            f.write("\n")
+        if sin_clasificar:
+            f.write("─── COMANDOS SIN TÉCNICA ASIGNADA (revisión manual) ───\n\n")
+            for cmd, n in sin_clasificar.most_common(15):
+                f.write(f"  {n:>6}x  {cmd}\n")
+            f.write("\n")
+
         f.write("=" * 70 + "\n")
         f.write("Generado por cowrie_analyzer.py\n")
 
     print(f"  Informe guardado: {path}")
+
+
+def write_mitre_csv(mitre, path):
+    """Tabla MITRE en CSV (UTF-8 con BOM para que Excel respete las tildes)."""
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f, delimiter=";")
+        w.writerow(["Táctica", "ID", "Técnica", "Sesiones", "Eventos", "IPs",
+                    "Ejemplo", "Recomendación"])
+        for t in mitre:
+            ejemplo = t["ejemplos"][0][0] if t["ejemplos"] else ""
+            w.writerow([t["tactica"], t["id"], t["nombre"], t["sesiones"], t["ejecuciones"],
+                        t["ips"], ejemplo, t["recomendacion"]])
+    print(f"  Tabla MITRE guardada: {path}")
 
 
 # ─── Main ─────────────────────────────────────────────────────────────
@@ -452,6 +491,11 @@ def main():
     print(f"  {sum(cmd_counter.values())} comandos, {sum(download_urls.values())} descargas, "
           f"{len(command_urls)} URLs distintas en comandos")
 
+    mitre, sin_clasificar = mapear(events)
+    tacticas = sorted({t["tactica"] for t in mitre})
+    print(f"  MITRE ATT&CK: {len(mitre)} técnicas en {len(tacticas)} tácticas; "
+          f"{sum(sin_clasificar.values())} comandos sin técnica propia")
+
     daily = analyze_timeline(events)
 
     # 3. Geolocalización
@@ -483,6 +527,13 @@ def main():
         os.path.join(args.output, "top_comandos.png"), top_n=args.top
     )
     plot_timeline(daily, os.path.join(args.output, "timeline.png"))
+    if mitre:
+        sesiones_por_tecnica = Counter({f"{t['id']}  {t['nombre']}": t["sesiones"] for t in mitre})
+        plot_top_bar(
+            sesiones_por_tecnica, "Técnicas MITRE ATT&CK observadas", "Sesiones",
+            os.path.join(args.output, "mitre_tecnicas.png"), top_n=len(mitre)
+        )
+        write_mitre_csv(mitre, os.path.join(args.output, "mitre_mapping.csv"))
 
     if geo_data:
         plot_geo_pie(geo_data, ip_counter, os.path.join(args.output, "paises_origen.png"))
@@ -492,7 +543,7 @@ def main():
     write_report(
         args.output, ip_counter, num_sessions, login_data,
         cmd_counter, download_urls, download_shasums,
-        daily, geo_data, command_urls
+        daily, geo_data, command_urls, mitre, sin_clasificar
     )
 
     print(f"\n✓ Análisis completo. Resultados en: {args.output}/\n")
