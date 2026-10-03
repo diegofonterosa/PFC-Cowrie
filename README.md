@@ -1,67 +1,36 @@
-# Honeypot SSH con Cowrie — Análisis de Inteligencia de Amenazas
+# Despliegue del honeypot
 
-Proyecto Intermodular · ASIR · Curso 2025–2026  
-**Alumno:** Diego Pérez Fonterosa  
-**Centro:** Prometeo FP (thePower Education)
+Ficheros para pasar de un Ubuntu Server 24.04 recién creado a un honeypot Cowrie expuesto en el puerto 22. Se ejecutan en orden y cada script comprueba que el anterior se completó.
 
-## Descripción
-
-Despliegue de un honeypot SSH expuesto a Internet utilizando [Cowrie](https://github.com/cowrie/cowrie), un software libre de media interacción que simula un servidor Linux vulnerable. El sistema captura ataques reales (fuerza bruta, comandos ejecutados, descargas de malware) y genera un informe de inteligencia de amenazas con mapeo [MITRE ATT&CK](https://attack.mitre.org/).
-
-## Arquitectura
-
-- **Servidor cloud:** Oracle Cloud Always Free (Ubuntu Server, IP pública)
-- **Honeypot:** Cowrie escuchando en el puerto 22 (redirigido desde iptables)
-- **SSH de administración:** puerto 2022, acceso exclusivo por clave
-- **Laboratorio local:** VirtualBox con Wazuh 4.9.2 (SIEM) y Kali Linux (ataque controlado)
-
-## Estructura del repositorio
-
-```
-PFC-Cowrie/
-├── docs/              # Anteproyecto y memoria del proyecto
-├── scripts/           # Scripts Python de análisis y generación de datos
-├── config/            # Scripts de despliegue y configuración (Cowrie, SSH, iptables, systemd)
-├── logs/
-│   └── sample/        # Logs de ejemplo para pruebas
-├── capturas/          # Capturas de pantalla organizadas por fase
-│   ├── fase1-despliegue/
-│   ├── fase2-hardening/
-│   ├── fase3-cowrie/
-│   ├── fase4-captura/
-│   ├── fase5-analisis/
-│   └── fase6-informe/
-└── graficas/          # Gráficas generadas por el script de análisis
-```
-
-## Uso del script de análisis
+| Paso | Fichero | Qué hace |
+|---|---|---|
+| 0 | (consola OCI) | Abrir 2022/TCP en la Security List de la subnet |
+| 1 | `01_hardening.sh` | Actualizaciones, swap si hace falta, firewall iptables, SSH real al 2022 solo con clave |
+| — | (otra terminal) | Comprobar `ssh -p 2022 ubuntu@IP` antes de seguir |
+| 2 | `02_instalar_cowrie.sh` | Usuario `cowrie`, Cowrie 3.1.0 en venv, configuración y servicio systemd |
+| 3 | `03_redireccion_22.sh` | Redirección NAT 22 → 2222: el honeypot pasa a ser público |
 
 ```bash
-# Generar datos de ejemplo para pruebas
-python3 scripts/generate_sample_logs.py
-
-# Analizar logs (con geolocalización)
-python3 scripts/cowrie_analyzer.py cowrie.json --output graficas/
-
-# Analizar logs (sin conexión a Internet)
-python3 scripts/cowrie_analyzer.py cowrie.json --output graficas/ --no-geo
+ssh ubuntu@IP                          # aún por el 22, antes del paso 1
+git clone https://github.com/diegofonterosa/PFC-Cowrie.git
+cd PFC-Cowrie/config && sudo bash 01_hardening.sh
 ```
 
-El script genera:
-- Ranking de IPs atacantes con geolocalización
-- Credenciales más probadas (usuario y contraseña)
-- Comandos más ejecutados tras el acceso
-- Ficheros/malware descargados
-- Gráficas en PNG y un informe de resumen en texto
+Se clona en el propio servidor en lugar de copiar los ficheros desde Windows: así llegan con saltos de línea de Linux (LF). Con los de Windows (CRLF) los scripts fallan con errores como `$'\r': command not found`.
 
-## Herramientas
+## Ficheros de configuración
 
-- **Cowrie** — honeypot SSH/Telnet de media interacción
-- **Python 3** — análisis de logs (json, collections, matplotlib)
-- **Wazuh 4.9.2** — SIEM para ingesta y visualización (opcional)
-- **MITRE ATT&CK** — marco de referencia para clasificación de actividad
-- **ip-api.com / GeoLite2** — geolocalización de IPs atacantes
+- `cowrie.cfg`: solo las claves que cambian respecto a los valores por defecto (nombre de host, identidad Debian 12, log JSON único, Telnet desactivado).
+- `userdb.txt`: credenciales aceptadas. **Debe ser ASCII puro**: con una tilde, Cowrie rechaza todos los logins sin dar error.
+- `sshd_hardening.conf`: SSH de administración (puerto 2022, solo clave, sin root).
+- `cowrie.service`: unidad de systemd con el servicio confinado (solo puede escribir en `var/`).
 
-## Licencia
+## Comandos útiles
 
-Proyecto académico. El código de los scripts es de uso libre.
+```bash
+sudo systemctl status cowrie                 # estado del honeypot
+sudo journalctl -u cowrie -f                 # log del servicio
+sudo tail -f /home/cowrie/honeypot/var/log/cowrie/cowrie.json   # ataques en directo
+# bajar logs (la carpeta de cowrie no es legible para ubuntu: se lee con sudo)
+ssh -p 2022 ubuntu@IP 'sudo cat /home/cowrie/honeypot/var/log/cowrie/cowrie.json' > cowrie.json
+```

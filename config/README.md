@@ -11,10 +11,12 @@ Ficheros para pasar de un Ubuntu Server 24.04 recién creado a un honeypot Cowri
 | 3 | `03_redireccion_22.sh` | Redirección NAT 22 → 2222: el honeypot pasa a ser público |
 
 ```bash
-scp -P 22 -r config/ ubuntu@IP:~/      # aún por el 22, antes del paso 1
-ssh ubuntu@IP
-cd config && sudo bash 01_hardening.sh
+ssh ubuntu@IP                          # aún por el 22, antes del paso 1
+git clone https://github.com/diegofonterosa/PFC-Cowrie.git
+cd PFC-Cowrie/config && sudo bash 01_hardening.sh
 ```
+
+Se clona en el propio servidor en lugar de copiar los ficheros desde Windows: así llegan con saltos de línea de Linux (LF). Con los de Windows (CRLF) los scripts fallan con errores como `$'\r': command not found`.
 
 ## Ficheros de configuración
 
