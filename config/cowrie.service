@@ -13,10 +13,15 @@ Type=simple
 User=cowrie
 Group=cowrie
 WorkingDirectory=/home/cowrie/honeypot
-# COWRIE_STDOUT=yes: primer plano, salida al journal (journalctl -u cowrie)
-Environment=COWRIE_STDOUT=yes
-Environment=AUTHBIND_ENABLED=no
-ExecStart=/home/cowrie/honeypot/cowrie-env/bin/cowrie start
+# Se lanza twistd directamente y en primer plano (-n), con la salida al
+# journal (journalctl -u cowrie). Es lo que hace "cowrie start" con
+# COWRIE_STDOUT=yes, salvo dos detalles que lo rompian bajo systemd:
+#  - "cowrie start" busca twistd en el PATH y systemd no activa el venv
+#    (FileNotFoundError): aqui va la ruta completa.
+#  - twistd escribe twistd.pid en el directorio de trabajo, que el
+#    confinamiento deja en solo lectura: --pidfile= lo desactiva (systemd
+#    ya sabe el PID del proceso).
+ExecStart=/home/cowrie/honeypot/cowrie-env/bin/twistd --umask=0022 -n --pidfile= --logger cowrie.python.logfile.stdoutLogger cowrie
 Restart=always
 RestartSec=10
 

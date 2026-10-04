@@ -48,6 +48,9 @@ source cowrie-env/bin/activate
 python -m pip install -q --upgrade pip
 python -m pip install -q "cowrie==$COWRIE_VERSION"
 [[ -f etc/cowrie.cfg ]] || cowrie init
+# Cache de plugins de Twisted: bajo systemd el venv es de solo lectura y,
+# sin generarla aqui, twistd avisaria en cada arranque de que no puede escribirla.
+python -c "from twisted.plugin import IPlugin, getPlugins; list(getPlugins(IPlugin))"
 EOF
 
 info "Aplicando la configuracion del proyecto..."
