@@ -8,13 +8,13 @@
 #  - Firewall con iptables (persistente): denegar todo salvo lo necesario
 #  - Crea swap si la maquina tiene menos de 2 GB de RAM
 #
-#  Uso:  sudo bash 01_hardening.sh
-#  Probado para Ubuntu Server 24.04 LTS (imagenes de Oracle Cloud).
+#  Uso:  sudo bash 01_hardening.sh   (o como root: bash 01_hardening.sh)
+#  Probado para Ubuntu Server 24.04 LTS. Valido para proveedores que
+#  entregan un usuario "ubuntu" (Oracle, AWS) o solo root (Hetzner).
 # =====================================================================
 set -euo pipefail
 
 SSH_PORT=2022
-ADMIN_USER="${SUDO_USER:-ubuntu}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DROPIN=/etc/ssh/sshd_config.d/00-pfc-hardening.conf
 
@@ -23,20 +23,48 @@ warn() { echo -e "\033[1;33m[!]\033[0m $*"; }
 die()  { echo -e "\033[1;31m[x]\033[0m $*" >&2; exit 1; }
 
 # --- Comprobaciones previas -------------------------------------------
-[[ $EUID -eq 0 ]] || die "Ejecuta el script con sudo."
+[[ $EUID -eq 0 ]] || die "Ejecuta el script con sudo (o como root)."
 [[ -f "$SCRIPT_DIR/sshd_hardening.conf" ]] || die "Falta sshd_hardening.conf junto al script."
+
+# --- Usuario administrador ---------------------------------------------
+# Este script prohibe el acceso SSH como root, asi que antes debe existir
+# un usuario administrador con tu clave. Si la maquina solo trae root
+# (Hetzner), se crea uno copiando la clave autorizada de root.
+if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+  ADMIN_USER="$SUDO_USER"
+elif id ubuntu &>/dev/null && [[ -s /home/ubuntu/.ssh/authorized_keys ]]; then
+  ADMIN_USER=ubuntu
+else
+  [[ -s /root/.ssh/authorized_keys ]] || die "root no tiene claves en /root/.ssh/authorized_keys."
+  read -rp "  Nombre del usuario administrador a crear [diego]: " ADMIN_USER
+  ADMIN_USER="${ADMIN_USER:-diego}"
+  [[ "$ADMIN_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "Nombre de usuario no valido."
+  if ! id "$ADMIN_USER" &>/dev/null; then
+    info "Creando el usuario administrador $ADMIN_USER..."
+    adduser --disabled-password --gecos "" "$ADMIN_USER"
+  fi
+  usermod -aG sudo "$ADMIN_USER"
+  install -d -m 700 -o "$ADMIN_USER" -g "$ADMIN_USER" "/home/$ADMIN_USER/.ssh"
+  install -m 600 -o "$ADMIN_USER" -g "$ADMIN_USER" /root/.ssh/authorized_keys \
+    "/home/$ADMIN_USER/.ssh/authorized_keys"
+  echo "  Elige la contrasena de $ADMIN_USER. Solo la pedira sudo: el SSH seguira siendo solo con clave."
+  passwd "$ADMIN_USER"
+fi
 [[ -s "/home/$ADMIN_USER/.ssh/authorized_keys" ]] \
   || die "El usuario $ADMIN_USER no tiene claves en ~/.ssh/authorized_keys: te quedarias fuera."
+info "Usuario administrador: $ADMIN_USER"
 
 cat <<EOF
 
-  ANTES DE CONTINUAR, en la consola de Oracle Cloud:
-    Networking > VCN > Subnet publica > Security List > Add Ingress Rule
-      Source CIDR 0.0.0.0/0 - TCP - Destination port $SSH_PORT
+  ANTES DE CONTINUAR, en el firewall de tu proveedor cloud abre la
+  entrada TCP $SSH_PORT desde cualquier origen (0.0.0.0/0):
+    - Hetzner: Firewalls > (tu firewall) > Reglas de entrada
+    - Oracle:  Networking > VCN > Subnet > Security List > Ingress Rule
+    - AWS:     EC2 > Security Groups > Inbound rules
 
   Si el puerto $SSH_PORT no esta abierto ahi, perderas el acceso.
 EOF
-read -rp "  El puerto $SSH_PORT ya esta abierto en la Security List? (si/no): " ok
+read -rp "  El puerto $SSH_PORT ya esta abierto en el firewall del proveedor? (si/no): " ok
 [[ "$ok" == "si" ]] || die "Abrelo primero y vuelve a ejecutar el script."
 
 # --- 1. Sistema --------------------------------------------------------
@@ -71,7 +99,7 @@ ensure() {  # inserta la regla al principio solo si no existe ya
   iptables -C "$chain" "$@" 2>/dev/null || iptables -I "$chain" 1 "$@"
 }
 
-# Si la cadena INPUT no tiene ya un "denegar todo" (imagen no Oracle),
+# Si la cadena INPUT no tiene ya un "denegar todo" (p. ej. Hetzner o AWS),
 # se crea la base: trafico establecido, loopback, ICMP, 22 y rechazo final.
 if ! iptables -S INPUT | grep -qE -- '-j (REJECT|DROP)$|-j REJECT --reject-with'; then
   iptables -A INPUT -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT

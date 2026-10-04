@@ -4,16 +4,26 @@ Ficheros para pasar de un Ubuntu Server 24.04 recién creado a un honeypot Cowri
 
 | Paso | Fichero | Qué hace |
 |---|---|---|
-| 0 | (consola OCI) | Abrir 2022/TCP en la Security List de la subnet |
-| 1 | `01_hardening.sh` | Actualizaciones, swap si hace falta, firewall iptables, SSH real al 2022 solo con clave |
-| — | (otra terminal) | Comprobar `ssh -p 2022 ubuntu@IP` antes de seguir |
-| 2 | `02_instalar_cowrie.sh` | Usuario `cowrie`, Cowrie 3.1.0 en venv, configuración y servicio systemd; en A1, reserva de memoria |
+| 0 | (consola del proveedor) | Abrir 22/TCP y 2022/TCP en el firewall del proveedor |
+| 1 | `01_hardening.sh` | Usuario administrador si hace falta, actualizaciones, swap, firewall iptables, SSH real al 2022 solo con clave |
+| — | (otra terminal) | Comprobar `ssh -p 2022 <usuario>@IP` antes de seguir |
+| 2 | `02_instalar_cowrie.sh` | Usuario `cowrie`, Cowrie 3.1.0 en venv, configuración y servicio systemd; en A1 de Oracle, reserva de memoria |
 | 3 | `03_redireccion_22.sh` | Redirección NAT 22 → 2222: el honeypot pasa a ser público |
 
+**Paso 1**, aún por el puerto 22. En Hetzner se entra como `root`; en Oracle y AWS, como `ubuntu`:
 ```bash
-ssh ubuntu@IP                          # aún por el 22, antes del paso 1
+ssh root@IP                            # o ubuntu@IP
 git clone https://github.com/diegofonterosa/PFC-Cowrie.git
 cd PFC-Cowrie/config && sudo bash 01_hardening.sh
+```
+Si la máquina solo tiene `root`, el script crea tu usuario administrador (por defecto `diego`) con la misma clave SSH y te pide una contraseña para `sudo`, porque después el acceso SSH como root queda prohibido.
+
+**Pasos 2 y 3**, desde otra terminal y ya por el 2022 con tu usuario:
+```bash
+ssh -p 2022 diego@IP
+git clone https://github.com/diegofonterosa/PFC-Cowrie.git
+cd PFC-Cowrie/config && sudo bash 02_instalar_cowrie.sh
+sudo bash 03_redireccion_22.sh
 ```
 
 Se clona en el propio servidor en lugar de copiar los ficheros desde Windows: así llegan con saltos de línea de Linux (LF). Con los de Windows (CRLF) los scripts fallan con errores como `$'\r': command not found`.
@@ -24,7 +34,7 @@ Se clona en el propio servidor en lugar de copiar los ficheros desde Windows: as
 - `userdb.txt`: credenciales aceptadas. **Debe ser ASCII puro**: con una tilde, Cowrie rechaza todos los logins sin dar error.
 - `sshd_hardening.conf`: SSH de administración (puerto 2022, solo clave, sin root).
 - `cowrie.service`: unidad de systemd con el servicio confinado (solo puede escribir en `var/`).
-- `oci-keepalive.py` y `oci-keepalive.service`: reservan el 25 % de la RAM. Oracle recupera las instancias Always Free que pasan 7 días con CPU, red y memoria (en A1) por debajo del 20 %, y un honeypot cumple las tres. Manteniendo la memoria por encima del 20 % deja de considerarse ociosa. Solo se instala en instancias A1.
+- `oci-keepalive.py` y `oci-keepalive.service`: reservan el 25 % de la RAM. Oracle recupera las instancias Always Free que pasan 7 días con CPU, red y memoria (en A1) por debajo del 20 %, y un honeypot cumple las tres. Manteniendo la memoria por encima del 20 % deja de considerarse ociosa. Solo se instala en instancias A1 de Oracle (el script lo detecta por la etiqueta de chasis `OracleCloud.com`).
 
 ## Comandos útiles
 
@@ -34,5 +44,5 @@ sudo journalctl -u cowrie -f                 # log del servicio
 systemctl status oci-keepalive && free -h    # reserva de memoria activa
 sudo tail -f /home/cowrie/honeypot/var/log/cowrie/cowrie.json   # ataques en directo
 # bajar logs (la carpeta de cowrie no es legible para ubuntu: se lee con sudo)
-ssh -p 2022 ubuntu@IP 'sudo cat /home/cowrie/honeypot/var/log/cowrie/cowrie.json' > cowrie.json
+ssh -p 2022 diego@IP 'sudo cat /home/cowrie/honeypot/var/log/cowrie/cowrie.json' > cowrie.json
 ```

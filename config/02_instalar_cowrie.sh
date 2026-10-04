@@ -70,7 +70,8 @@ info "Cowrie instalado y escuchando en el puerto 2222."
 # por debajo del 20 % durante 7 dias. Un honeypot cumple las tres; con
 # mantener la memoria por encima del 20 % deja de considerarse ociosa.
 mem_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
-if [[ "$(uname -m)" == "aarch64" ]] && (( mem_mb >= 2048 )); then
+es_oci=$(cat /sys/class/dmi/id/chassis_asset_tag 2>/dev/null || true)
+if [[ "$es_oci" == "OracleCloud.com" && "$(uname -m)" == "aarch64" ]] && (( mem_mb >= 2048 )); then
   [[ -f "$SCRIPT_DIR/oci-keepalive.py" && -f "$SCRIPT_DIR/oci-keepalive.service" ]] \
     || die "Faltan oci-keepalive.py u oci-keepalive.service junto al script."
   info "Instancia A1 con ${mem_mb} MB: activando la reserva de memoria (25 %)..."
@@ -82,17 +83,17 @@ if [[ "$(uname -m)" == "aarch64" ]] && (( mem_mb >= 2048 )); then
   systemctl is-active --quiet oci-keepalive || die "oci-keepalive no arranca: journalctl -u oci-keepalive"
   free -h | awk 'NR<=2'
 else
-  info "No es una A1 con 2 GB o mas: la reserva de memoria no hace falta."
+  info "No es una instancia A1 de Oracle: la reserva de memoria no hace falta."
 fi
 cat <<EOF
 
   PRUEBA (desde tu equipo o Kali, todavia por el puerto 2222):
-    1. En la Security List de OCI abre TEMPORALMENTE el 2222/TCP
+    1. En el firewall del proveedor abre TEMPORALMENTE el 2222/TCP
     2. ssh -p 2222 root@<IP_PUBLICA>     (password "root"   -> rechazada)
        ssh -p 2222 root@<IP_PUBLICA>     (password "prueba" -> entra)
     3. Ejecuta "uname -a" y sal. En el servidor:
        sudo tail -n 5 $HP_DIR/var/log/cowrie/cowrie.json
-    4. Cierra el 2222 en la Security List y continua con:
+    4. Cierra el 2222 en el firewall del proveedor y continua con:
        sudo bash 03_redireccion_22.sh
 
 EOF

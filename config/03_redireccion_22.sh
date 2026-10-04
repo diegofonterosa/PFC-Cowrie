@@ -27,7 +27,7 @@ ensure() {  # inserta la regla solo si no existe ya
 
 info "Aplicando la redireccion 22 -> 2222..."
 # Tras PREROUTING el paquete llega a INPUT con destino 2222, por eso el
-# firewall del host debe aceptar el 2222 aunque OCI solo exponga el 22.
+# firewall del host debe aceptar el 2222 aunque el proveedor solo exponga el 22.
 ensure filter INPUT -p tcp --dport 2222 -m conntrack --ctstate NEW -j ACCEPT
 ensure nat PREROUTING -p tcp --dport 22 -j REDIRECT --to-port 2222
 netfilter-persistent save
