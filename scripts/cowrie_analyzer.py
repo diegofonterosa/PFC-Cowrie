@@ -457,6 +457,11 @@ def main():
         "--top", type=int, default=15,
         help="Número de elementos en los rankings (por defecto: 15)"
     )
+    parser.add_argument(
+        "--exclude-ip", action="append", default=[], metavar="IP",
+        help="IP a excluir del análisis (pruebas propias); se puede repetir. "
+             "127.0.0.1 se excluye siempre"
+    )
     args = parser.parse_args()
 
     os.makedirs(args.output, exist_ok=True)
@@ -472,6 +477,14 @@ def main():
     if not events:
         print("ERROR: No se encontraron eventos. Comprueba la ruta.")
         sys.exit(1)
+
+    # Fuera las sesiones de prueba propias (localhost y las IPs indicadas)
+    excluidas = {"127.0.0.1", "::1", *args.exclude_ip}
+    antes = len(events)
+    events = [e for e in events if e.get("src_ip") not in excluidas]
+    if antes != len(events):
+        print(f"  Excluidos {antes - len(events)} eventos de pruebas propias "
+              f"({', '.join(sorted(excluidas))})")
 
     # 2. Análisis
     print("\n[2/6] Analizando conexiones e IPs...")

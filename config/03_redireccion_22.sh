@@ -40,7 +40,7 @@ cat <<EOF
 
   El honeypot ya es publico en el puerto 22.
   Comprobacion desde fuera:  ssh root@<IP_PUBLICA>   -> debe verse web-prod-02
-  Administracion:            ssh -p 2022 ubuntu@<IP_PUBLICA>
+  Administracion:            ssh -p 2022 ${SUDO_USER:-<tu_usuario>}@<IP_PUBLICA>
   Ver ataques en directo:    sudo tail -f /home/cowrie/honeypot/var/log/cowrie/cowrie.json
 
 EOF

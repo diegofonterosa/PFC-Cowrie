@@ -49,6 +49,9 @@ python3 scripts/cowrie_analyzer.py cowrie.json --output graficas/
 # Analizar logs (sin conexión a Internet)
 python3 scripts/cowrie_analyzer.py cowrie.json --output graficas/ --no-geo
 
+# Excluir las sesiones de prueba propias (localhost se excluye siempre)
+python3 scripts/cowrie_analyzer.py cowrie.json --output graficas/ --exclude-ip <TU_IP_PUBLICA>
+
 # Pruebas del clasificador MITRE ATT&CK
 python3 scripts/test_mitre_mapping.py
 ```
