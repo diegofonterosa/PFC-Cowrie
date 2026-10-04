@@ -10,9 +10,12 @@ Despliegue de un honeypot SSH expuesto a Internet utilizando [Cowrie](https://gi
 
 ## Arquitectura
 
-- **Servidor cloud:** Oracle Cloud Always Free (Ubuntu Server, IP pública)
-- **Honeypot:** Cowrie escuchando en el puerto 22 (redirigido desde iptables)
-- **SSH de administración:** puerto 2022, acceso exclusivo por clave
+- **Servidor cloud:** Hetzner Cloud CX23 (Ubuntu Server 24.04, 2 vCPU, 4 GB RAM, Núremberg, IPv4 pública)
+- **Firewall:** Hetzner Cloud Firewall (entrada solo TCP 22, TCP 2022 e ICMP) + iptables en el servidor
+- **Honeypot:** Cowrie escuchando en el puerto 22 (redirección NAT 22 → 2222 con iptables)
+- **SSH de administración:** puerto 2022, acceso exclusivo por clave y sin root
+
+El anteproyecto preveía Oracle Cloud Always Free; se cambió a Hetzner por falta de capacidad en la región de Oracle. Los scripts de `config/` son válidos para ambos proveedores.
 - **Laboratorio local:** VirtualBox con Wazuh 4.9.2 (SIEM) y Kali Linux (ataque controlado)
 
 ## Estructura del repositorio
