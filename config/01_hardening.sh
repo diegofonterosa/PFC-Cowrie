@@ -47,8 +47,12 @@ else
   install -d -m 700 -o "$ADMIN_USER" -g "$ADMIN_USER" "/home/$ADMIN_USER/.ssh"
   install -m 600 -o "$ADMIN_USER" -g "$ADMIN_USER" /root/.ssh/authorized_keys \
     "/home/$ADMIN_USER/.ssh/authorized_keys"
-  echo "  Elige la contrasena de $ADMIN_USER. Solo la pedira sudo: el SSH seguira siendo solo con clave."
-  passwd "$ADMIN_USER"
+  # Solo se pide contrasena si el usuario aun no tiene una (estado "P"),
+  # para poder volver a ejecutar el script sin repetir este paso.
+  if [[ "$(passwd -S "$ADMIN_USER" | awk '{print $2}')" != "P" ]]; then
+    echo "  Elige la contrasena de $ADMIN_USER. Solo la pedira sudo: el SSH seguira siendo solo con clave."
+    passwd "$ADMIN_USER"
+  fi
 fi
 [[ -s "/home/$ADMIN_USER/.ssh/authorized_keys" ]] \
   || die "El usuario $ADMIN_USER no tiene claves en ~/.ssh/authorized_keys: te quedarias fuera."
@@ -118,6 +122,9 @@ sed -i -E 's/^\s*Port\s+/#&/' /etc/ssh/sshd_config
 sed "s/__ADMIN_USER__/$ADMIN_USER/" "$SCRIPT_DIR/sshd_hardening.conf" > "$DROPIN"
 chmod 644 "$DROPIN"
 
+# Ubuntu 24.04 arranca sshd por socket y /run/sshd solo existe mientras el
+# servicio corre; "sshd -t" falla sin ella aunque la configuracion este bien.
+install -d -m 0755 /run/sshd
 if ! sshd -t; then
   rm -f "$DROPIN"
   die "La configuracion de sshd no es valida; se deshace el cambio."
