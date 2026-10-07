@@ -538,8 +538,9 @@ def main():
     antes = len(events)
     events = [e for e in events if e.get("src_ip") not in excluidas]
     if antes != len(events):
+        # No se muestran las IPs: la del administrador no debe salir en capturas
         print(f"  Excluidos {antes - len(events)} eventos de pruebas propias "
-              f"({', '.join(sorted(excluidas))})")
+              f"({len(excluidas)} IPs excluidas)")
 
     # 2. Análisis
     print("\n[2/6] Analizando conexiones e IPs...")
