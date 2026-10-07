@@ -200,47 +200,55 @@ def analyze_timeline(events):
 
 
 # ─── Geolocalización ─────────────────────────────────────────────────
-def geolocate_ips(ip_counter, top_n=20):
+def geolocate_ips(ip_counter, top_n=None):
     """
-    Geolocaliza las top N IPs usando ip-api.com (batch, gratis, sin clave).
-    Máximo 100 IPs por petición, 45 peticiones por minuto.
+    Geolocaliza las IPs con ip-api.com (gratis, sin clave). Por defecto todas.
+    El servicio admite lotes de 100 IPs y 15 lotes por minuto: se espera
+    entre lotes para no superar el limite.
     """
-    try:
-        import urllib.request
-    except ImportError:
-        print("  [aviso] urllib no disponible, saltando geolocalización.")
-        return {}
+    import time
+    import urllib.request
 
-    top_ips = [ip for ip, _ in ip_counter.most_common(top_n)]
-    # ip-api.com acepta batch POST con hasta 100 IPs
-    url = "http://ip-api.com/batch?fields=query,country,countryCode,city,isp,org,as"
-    payload = json.dumps(top_ips).encode("utf-8")
-
-    try:
-        req = urllib.request.Request(
-            url, data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            results = json.loads(resp.read().decode("utf-8"))
-    except Exception as ex:
-        print(f"  [aviso] Error en geolocalización: {ex}")
-        print("  Puedes reintentar más tarde o usar GeoLite2 offline.")
-        return {}
-
+    ips = [ip for ip, _ in ip_counter.most_common(top_n)]
+    url = "http://ip-api.com/batch?fields=status,query,country,countryCode,city,isp,org,as"
     geo = {}
-    for r in results:
-        ip = r.get("query", "")
-        geo[ip] = {
-            "country": r.get("country", "N/A"),
-            "country_code": r.get("countryCode", "N/A"),
-            "city": r.get("city", "N/A"),
-            "isp": r.get("isp", "N/A"),
-            "org": r.get("org", "N/A"),
-            "as": r.get("as", "N/A"),
-        }
+    for i in range(0, len(ips), 100):
+        lote = ips[i:i + 100]
+        try:
+            req = urllib.request.Request(
+                url, data=json.dumps(lote).encode("utf-8"),
+                headers={"Content-Type": "application/json"}, method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                results = json.loads(resp.read().decode("utf-8"))
+        except Exception as ex:
+            print(f"  [aviso] Error en geolocalización: {ex}")
+            print("  Puedes reintentar más tarde o usar --no-geo.")
+            break
+        for r in results:
+            if r.get("status") != "success":
+                continue
+            geo[r.get("query", "")] = {
+                "country": r.get("country", "N/A"),
+                "country_code": r.get("countryCode", "N/A"),
+                "city": r.get("city", "N/A"),
+                "isp": r.get("isp", "N/A"),
+                "org": r.get("org", "N/A"),
+                "as": r.get("as", "N/A"),
+            }
+        if i + 100 < len(ips):
+            time.sleep(4.5)  # 15 lotes por minuto como maximo
     return geo
+
+
+def analyze_countries(geo_data, ip_counter):
+    """Conexiones e IPs distintas por pais (del proveedor de la IP)."""
+    conexiones, ips = Counter(), Counter()
+    for ip, n in ip_counter.items():
+        pais = geo_data.get(ip, {}).get("country", "Sin datos")
+        conexiones[pais] += n
+        ips[pais] += 1
+    return conexiones, ips
 
 
 # ─── Generación de gráficas ──────────────────────────────────────────
@@ -316,44 +324,28 @@ def plot_timeline(daily, filename):
     print(f"  Gráfica guardada: {filename}")
 
 
-def plot_geo_pie(geo_data, ip_counter, filename):
-    """Gráfica de tarta con países de origen."""
-    if not geo_data:
+def plot_countries(conexiones, ips, filename, top_n=10):
+    """Barras de conexiones por pais, con el numero de IPs de cada uno."""
+    if not conexiones:
         return
+    items = conexiones.most_common(top_n)
+    total = sum(conexiones.values())
+    labels = [f"{pais} ({ips[pais]} IPs)" for pais, _ in items][::-1]
+    values = [n for _, n in items][::-1]
 
-    country_counts = Counter()
-    for ip, count in ip_counter.items():
-        if ip in geo_data:
-            country = geo_data[ip]["country"]
-            country_counts[country] += count
-
-    top_countries = country_counts.most_common(8)
-    if not top_countries:
-        return
-
-    labels = [c[0] for c in top_countries]
-    sizes = [c[1] for c in top_countries]
-    others = sum(country_counts.values()) - sum(sizes)
-    if others > 0:
-        labels.append("Otros")
-        sizes.append(others)
-
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(10, max(4, len(items) * 0.45 + 1)))
     fig.patch.set_facecolor(COLOR_BG)
-    colors = COLORS_PALETTE[:len(labels)]
-
-    wedges, texts, autotexts = ax.pie(
-        sizes, labels=labels, autopct="%1.1f%%",
-        colors=colors, startangle=140,
-        pctdistance=0.85, textprops={"fontsize": 9, "color": COLOR_PRIMARY}
-    )
-    for t in autotexts:
-        t.set_fontsize(8)
-        t.set_color("white")
-        t.set_fontweight("bold")
-
-    ax.set_title("Origen de los ataques por país",
+    ax.set_facecolor(COLOR_BG)
+    bars = ax.barh(labels, values, color=COLOR_BARS, edgecolor="white", linewidth=0.5)
+    for bar, val in zip(bars, values):
+        ax.text(bar.get_width() + max(values) * 0.01, bar.get_y() + bar.get_height() / 2,
+                f"{val} ({val / total * 100:.1f} %)", va="center", fontsize=9, color=COLOR_PRIMARY)
+    ax.set_xlabel("Conexiones", fontsize=10, color=COLOR_PRIMARY)
+    ax.set_title("Países de origen de las conexiones (país del proveedor de la IP)",
                  fontsize=13, fontweight="bold", color=COLOR_PRIMARY, pad=12)
+    for lado in ("top", "right"):
+        ax.spines[lado].set_visible(False)
+    ax.tick_params(colors=COLOR_PRIMARY, labelsize=9)
     plt.tight_layout()
     plt.savefig(filename, dpi=150, bbox_inches="tight")
     plt.close()
@@ -398,6 +390,16 @@ def write_report(output_dir, ip_counter, num_sessions, login_data,
             isp = geo.get("isp", "N/A")
             f.write(f"  {ip:<20} {count:>10}  {country:<20} {isp}\n")
         f.write("\n")
+
+        # Paises
+        if geo_data:
+            conexiones_pais, ips_pais = analyze_countries(geo_data, ip_counter)
+            total_c = sum(conexiones_pais.values())
+            f.write("─── PAÍSES DE ORIGEN (país del proveedor de la IP) ───\n\n")
+            f.write(f"  {'País':<28} {'Conexiones':>10} {'%':>7} {'IPs':>6}\n")
+            for pais, n in conexiones_pais.most_common(15):
+                f.write(f"  {pais:<28} {n:>10} {n / total_c * 100:>6.1f}% {ips_pais[pais]:>6}\n")
+            f.write(f"  ({len([p for p in ips_pais if p != 'Sin datos'])} países en total)\n\n")
 
         # Credenciales
         f.write("─── TOP 10 USUARIOS ───\n\n")
@@ -570,9 +572,9 @@ def main():
     geo_data = {}
     if not args.no_geo:
         print("\n[5/6] Geolocalizando IPs (ip-api.com)...")
-        geo_data = geolocate_ips(ip_counter, top_n=20)
+        geo_data = geolocate_ips(ip_counter)
         if geo_data:
-            print(f"  {len(geo_data)} IPs geolocalizadas")
+            print(f"  {len(geo_data)} de {len(ip_counter)} IPs geolocalizadas")
     else:
         print("\n[5/6] Geolocalización omitida (--no-geo)")
 
@@ -604,7 +606,8 @@ def main():
         write_mitre_csv(mitre, os.path.join(args.output, "mitre_mapping.csv"))
 
     if geo_data:
-        plot_geo_pie(geo_data, ip_counter, os.path.join(args.output, "paises_origen.png"))
+        conexiones_pais, ips_pais = analyze_countries(geo_data, ip_counter)
+        plot_countries(conexiones_pais, ips_pais, os.path.join(args.output, "paises_origen.png"))
 
     # 5. Informe
     print("\nGenerando informe de resumen...")
