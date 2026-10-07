@@ -305,12 +305,16 @@ def plot_timeline(daily, filename):
     ax.set_facecolor(COLOR_BG)
 
     ax.bar(dates, values, color=COLOR_BARS, edgecolor="white", linewidth=0.5, width=0.8)
-    ax.plot(dates, values, color=COLOR_ACCENT, linewidth=1.5, marker="o", markersize=4)
+    if len(dates) <= 14:
+        # Pocos dias: todas las fechas y el valor encima de cada barra
+        for d, v in zip(dates, values):
+            ax.text(d, v + max(values) * 0.01, str(v), ha="center", va="bottom",
+                    fontsize=9, color=COLOR_PRIMARY)
 
-    ax.set_title("Conexiones por día", fontsize=13, fontweight="bold", color=COLOR_PRIMARY, pad=12)
+    ax.set_title("Conexiones por día (UTC)", fontsize=13, fontweight="bold", color=COLOR_PRIMARY, pad=12)
     ax.set_ylabel("Conexiones", fontsize=10, color=COLOR_PRIMARY)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%d %b"))
-    ax.xaxis.set_major_locator(mdates.DayLocator(interval=2))
+    ax.xaxis.set_major_locator(mdates.DayLocator(interval=1 if len(dates) <= 14 else 2))
     plt.xticks(rotation=45, ha="right", fontsize=9)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
