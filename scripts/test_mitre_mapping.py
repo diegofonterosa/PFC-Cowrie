@@ -11,6 +11,25 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from mitre_mapping import clasificar_comando  # noqa: E402
 
 CASOS = {
+    # Casos vistos en los datos reales del honeypot (octubre de 2026)
+    "pwd": {"T1083"},
+    "hostname": {"T1082"},
+    "mount | head -5": {"T1082"},
+    "env | head -10": {"T1082"},
+    "ssh -V": {"T1082"},
+    "/ip cloud print": {"T1082"},
+    "history | tail -5": {"T1552.003"},
+    "LC_ALL=C rm -f /bin/415fwoo11121kb2rf2xih0cl59": {"T1070.004"},
+    'printf "#!/bin/bash\\necho \\"xxxxxx\\"\\n" > filter && chmod +x filter && ./filter && rm -rf filter': {"T1222.002", "T1497.001"},
+    "rm -rf /tmp/secure.sh; pkill -9 secure.sh; echo > /etc/hosts.deny": {"T1070.004", "T1562.004"},
+    "head -c 3800636 > /tmp/X0PuJAzJdG": {"T1105"},
+    "chmod +x setup.sh; sh setup.sh; ./redtail.x86_64": {"T1222.002", "T1496.001"},
+    "ls -la ~/.local/share/TelegramDesktop/tdata /var/spool/sms/* /var/log/smsd.log": {"T1083", "T1005"},
+    "locate D877F783D5D3EF8Cs": {"T1005"},
+    "cat /dev/null > /var/log/wtmp": {"T1070.002"},
+    # Falsos positivos que no deben clasificarse
+    "hostnamectl": {"T1082"},
+    "cd ~ && rm -rf .ssh && mkdir .ssh": set(),
     # Comandos tipicos de bots
     "uname -a": {"T1082"},
     "cat /etc/passwd": {"T1087.001"},

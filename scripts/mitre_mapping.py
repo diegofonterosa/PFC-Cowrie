@@ -10,7 +10,9 @@ vez descarga de herramientas (T1105), cambio de permisos (T1222.002) y
 ejecucion (T1059.004).
 
 Los intentos de autenticacion se clasifican aparte a partir de los eventos
-cowrie.login.failed (T1110.001) y cowrie.login.success (T1078.003).
+cowrie.login.failed (T1110.001) y cowrie.login.success (T1078.003); las
+subidas por SFTP (T1105) y el reenvio de puertos SSH (T1090), a partir de
+sus propios eventos.
 
 IDs comprobados contra https://attack.mitre.org (ATT&CK v16+).
 """
@@ -30,7 +32,9 @@ REGLAS = [
     # --- Descubrimiento -------------------------------------------------
     ("T1082", "System Information Discovery", "Discovery",
      r"\buname\b|/proc/cpuinfo|/proc/meminfo|\blscpu\b|\bnproc\b|\bfree\b|\bdf\b|"
-     r"/etc/(os|lsb)-release|\bhostnamectl\b|\bdmidecode\b|\buptime\b",
+     r"/etc/(os|lsb)-release|\bhostnamectl\b|\bdmidecode\b|\buptime\b|"
+     r"(^|[;&|\s])hostname(\s|$|;)|(^|[;&|\s])mount(\s|$|\|)|(^|[;&|\s])env(\s|$|\|)|"
+     r"\bssh\s+-V\b|\blspci\b|^/(ip|system)\s",
      "Detectar con auditd la ejecucion en rafaga de comandos de reconocimiento."),
     ("T1087.001", "Account Discovery: Local Account", "Discovery",
      r"/etc/passwd|/etc/group\b|\blastlog\b|\bgetent\s+passwd",
@@ -48,7 +52,7 @@ REGLAS = [
      r"\bnetstat\b|(^|[;&|\s])ss\s+-|\blsof\s+-i",
      "Detectar enumeracion de conexiones desde sesiones interactivas."),
     ("T1083", "File and Directory Discovery", "Discovery",
-     r"(^|[;&|\s])ls(\s|$)|\bfind\s+/",
+     r"(^|[;&|\s])ls(\s|$)|\bfind\s+/|(^|[;&|\s])pwd(\s|$|;)",
      "Monitorizar la exploracion de directorios temporales (/tmp, /dev/shm)."),
 
     # --- Acceso a credenciales -------------------------------------------
@@ -57,9 +61,19 @@ REGLAS = [
      "M1026 Privileged Account Management: impedir el acceso como root; "
      "M1027 Password Policies."),
 
+    ("T1552.003", "Unsecured Credentials: Shell History", "Credential Access",
+     r"(^|[;&|\s])history\s*(\||$|;)|cat\s+\S*\.bash_history",
+     "M1028 Operating System Configuration: no escribir contrasenas en la linea "
+     "de comandos y limitar el tamano del historial."),
+
+    ("T1005", "Data from Local System", "Collection",
+     r"TelegramDesktop/tdata|\blocate\s+D877F783D5D3EF8C|/var/spool/sms|/dev/ttyUSB|/dev/modem",
+     "M1057 Data Loss Prevention: no guardar sesiones ni datos sensibles en servidores expuestos."),
+
     # --- Ejecucion y transferencia ---------------------------------------
     ("T1105", "Ingress Tool Transfer", "Command and Control",
-     r"\bwget\b|\bcurl\b|\btftp\b|\bftpget\b|\bscp\b|\bnc\b.*<|/dev/tcp/",
+     r"\bwget\b|\bcurl\b|\btftp\b|\bftpget\b|\bscp\b|\bnc\b.*<|/dev/tcp/|"
+     r"\bhead\s+-c\s+\d+\s*>",
      "M1031 Network Intrusion Prevention; M1037 Filter Network Traffic: "
      "filtrar el trafico saliente de los servidores."),
     ("T1140", "Deobfuscate/Decode Files or Information", "Defense Evasion",
@@ -90,15 +104,26 @@ REGLAS = [
      r"history\s+-c|unset\s+HISTFILE|HISTFILE=|\.bash_history|HISTSIZE=0",
      "M1029 Remote Data Storage: enviar el historial y los logs a un sistema remoto."),
     ("T1070.002", "Indicator Removal: Clear Linux or Mac System Logs", "Defense Evasion",
-     r"/var/log|\bjournalctl\s+--vacuum|\bwtmp\b|\bbtmp\b|\blastlog\b.*>",
+     r"(\brm\b|\bshred\b|\btruncate\b|>)[^;|&]*/var/log|\bjournalctl\s+--vacuum|"
+     r"(\brm\b|>)[^;|&]*\b[wb]tmp\b|\blastlog\b.*>",
      "M1029 Remote Data Storage: centralizar los logs en un SIEM."),
     ("T1562.004", "Impair Defenses: Disable or Modify System Firewall", "Defense Evasion",
-     r"iptables\s+-[FX]|\bufw\s+disable|systemctl\s+(stop|disable)\s+(firewalld|ufw)",
+     r"iptables\s+-[FX]|\bufw\s+disable|systemctl\s+(stop|disable)\s+(firewalld|ufw)|"
+     r"echo\s*>\s*/etc/hosts\.deny",
      "M1018 User Account Management: limitar quien puede modificar el firewall."),
+
+    ("T1070.004", "Indicator Removal: File Deletion", "Defense Evasion",
+     r"\brm\s+-\w*f\w*\s+(\S*/tmp/|/bin/|/dev/shm/|~/)",
+     "M1029 Remote Data Storage; control de integridad (FIM) en /bin y /tmp."),
+    ("T1497.001", "Virtualization/Sandbox Evasion: System Checks", "Defense Evasion",
+     r"echo\s+\\?\"?x{6}|SHELL_BEHAVIOR|\./x{6}",
+     "Sin mitigacion en ATT&CK (abusa de funciones del sistema). Es un indicio de "
+     "bot que comprueba si esta en un honeypot: sirve para mejorar su realismo."),
 
     # --- Impacto -----------------------------------------------------------
     ("T1496.001", "Resource Hijacking: Compute Hijacking", "Impact",
-     r"\bxmrig\b|\bminerd\b|\bcpuminer\b|stratum\+tcp|\bminer\b|\bkdevtmpfsi\b|\bkinsing\b",
+     r"\bxmrig\b|\bminerd\b|\bcpuminer\b|stratum\+tcp|\bminer\b|\bkdevtmpfsi\b|\bkinsing\b|"
+     r"\bredtail\b",
      "Sin mitigacion preventiva en ATT&CK: monitorizar el uso de CPU y bloquear "
      "el trafico saliente hacia pools de mineria."),
 ]
@@ -110,6 +135,11 @@ T1059 = ("T1059.004", "Command and Scripting Interpreter: Unix Shell", "Executio
 T1110 = ("T1110.001", "Brute Force: Password Guessing", "Credential Access",
          "M1032 Multi-factor Authentication; M1036 Account Use Policies; "
          "deshabilitar la autenticacion por contrasena en SSH (solo claves).")
+T1105_SFTP = ("T1105", "Ingress Tool Transfer", "Command and Control",
+              "M1031 Network Intrusion Prevention; M1037 Filter Network Traffic: "
+              "filtrar el trafico saliente de los servidores.")
+T1090 = ("T1090", "Proxy", "Command and Control",
+         "M1042 Disable or Remove Feature or Program: AllowTcpForwarding no en sshd_config.")
 T1078 = ("T1078.003", "Valid Accounts: Local Accounts", "Initial Access",
          "M1027 Password Policies; M1026 Privileged Account Management: "
          "prohibir el acceso remoto como root.")
@@ -162,6 +192,17 @@ def mapear(events):
                 anotar(t, e, cmd)
             if not tecnicas:
                 sin_clasificar[cmd] += 1
+        elif ev == "cowrie.session.file_upload":
+            # Fichero subido por SFTP/SCP: transferencia de herramientas
+            nombre = e.get("filename", "")
+            anotar(T1105_SFTP, e, f"subida SFTP: {nombre}")
+            for t in clasificar_comando(nombre):
+                if t[0] == "T1496.001":
+                    anotar(t, e, f"subida SFTP: {nombre}")
+        elif ev == "cowrie.direct-tcpip.request":
+            # Reenvio de puertos SSH: usa el servidor como proxy hacia terceros
+            destino = f"{e.get('dst_ip', '')}:{e.get('dst_port', '')}"
+            anotar(T1090, e, f"reenvio TCP a {destino}")
 
     resultado = []
     for tid, d in datos.items():

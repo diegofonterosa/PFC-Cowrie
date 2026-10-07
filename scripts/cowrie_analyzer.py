@@ -114,17 +114,57 @@ def analyze_commands(events):
     return Counter(e.get("input", "") for e in cmds)
 
 
-def analyze_downloads(events):
-    """Ficheros que los atacantes intentaron descargar."""
-    downloads = filter_events(events, "cowrie.session.file_download")
-    urls = Counter(e.get("url", "") for e in downloads)
-    shasums = {}
-    for e in downloads:
-        url = e.get("url", "")
-        sha = e.get("shasum", "N/A")
-        if url and url not in shasums:
-            shasums[url] = sha
-    return urls, shasums
+def una_linea(texto, maximo=100):
+    """Comando en una sola linea para informes y graficas.
+
+    Los bots envian scripts de varias lineas en un unico comando; se
+    sustituyen los saltos de linea por " ⏎ " y se recorta el resultado.
+    """
+    t = re.sub(r"[ \t]+", " ", str(texto).replace("\r", "").replace("\n", " ⏎ ")).strip()
+    return t if len(t) <= maximo else t[:maximo - 1] + "…"
+
+
+def etiqueta(valor):
+    """Usuario o contrasena legible: la cadena vacia tambien se prueba."""
+    return "(vacía)" if valor == "" else una_linea(valor, 40)
+
+
+def analyze_files(events):
+    """Ficheros capturados por Cowrie, agrupados por hash SHA-256.
+
+    Cowrie guarda una copia de cada fichero que el atacante intenta meter
+    en el sistema y genera un evento por cada vez:
+      - cowrie.session.file_download con "url": descarga con wget/curl
+      - cowrie.session.file_download sin "url": contenido escrito con una
+        redireccion (echo ... > fichero), con la ruta en "destfile"
+      - cowrie.session.file_upload: fichero subido por SFTP/SCP
+    El hash identifica el fichero y es el indicador de compromiso (IOC).
+    """
+    ficheros = {}
+    for e in events:
+        ev = e.get("eventid")
+        if ev == "cowrie.session.file_download":
+            if e.get("url"):
+                tipo, origen = "descarga", e["url"]
+            else:
+                tipo, origen = "redirección", e.get("destfile", "")
+        elif ev == "cowrie.session.file_upload":
+            tipo, origen = "subida SFTP", e.get("filename", "")
+        else:
+            continue
+        sha = e.get("shasum") or "N/A"
+        f = ficheros.setdefault(sha, {"veces": 0, "tipos": Counter(), "origenes": Counter(),
+                                      "ips": set(), "primera": e.get("timestamp", "")})
+        f["veces"] += 1
+        f["tipos"][tipo] += 1
+        f["origenes"][origen] += 1
+        f["ips"].add(e.get("src_ip"))
+    return ficheros
+
+
+def analyze_clients(events):
+    """Software cliente SSH declarado por cada conexion (huella del bot)."""
+    return Counter(e.get("version", "") for e in filter_events(events, "cowrie.client.version"))
 
 
 URL_RE = re.compile(r"(?:https?|ftp|tftp)://[^\s'\";|&)<>`]+", re.IGNORECASE)
@@ -210,7 +250,7 @@ def plot_top_bar(counter, title, xlabel, filename, top_n=15, horizontal=True):
     if not items:
         return
 
-    labels = [str(item[0]) for item in items]
+    labels = [una_linea(item[0], 60) if item[0] != "" else "(vacía)" for item in items]
     values = [item[1] for item in items]
 
     fig, ax = plt.subplots(figsize=(10, max(4, len(items) * 0.4 + 1)))
@@ -322,7 +362,7 @@ def plot_geo_pie(geo_data, ip_counter, filename):
 
 # ─── Informe en texto ─────────────────────────────────────────────────
 def write_report(output_dir, ip_counter, num_sessions, login_data,
-                 cmd_counter, download_urls, download_shasums,
+                 cmd_counter, ficheros, clientes,
                  daily, geo_data, command_urls=None, mitre=None, sin_clasificar=None):
     """Genera un resumen en texto plano."""
     path = os.path.join(output_dir, "informe_resumen.txt")
@@ -341,7 +381,8 @@ def write_report(output_dir, ip_counter, num_sessions, login_data,
         f.write(f"    - Fallidos:              {login_data['failed']}\n")
         f.write(f"    - Exitosos:              {login_data['success']}\n")
         f.write(f"  Comandos ejecutados:       {sum(cmd_counter.values())}\n")
-        f.write(f"  Descargas de malware:      {sum(download_urls.values())}\n")
+        f.write(f"  Ficheros capturados:       {sum(x['veces'] for x in ficheros.values())} "
+                f"({len(ficheros)} distintos)\n")
         if daily:
             f.write(f"  Periodo:                   {min(daily.keys())} a {max(daily.keys())}\n")
             f.write(f"  Media diaria conexiones:   {sum(daily.values()) / len(daily):.1f}\n")
@@ -349,7 +390,7 @@ def write_report(output_dir, ip_counter, num_sessions, login_data,
 
         # Top IPs
         f.write("─── TOP 15 IPs ATACANTES ───\n\n")
-        f.write(f"  {'IP':<20} {'Intentos':>10}  {'País':<20} {'ISP'}\n")
+        f.write(f"  {'IP':<20} {'Conexiones':>10}  {'País':<20} {'ISP'}\n")
         f.write(f"  {'─'*20} {'─'*10}  {'─'*20} {'─'*30}\n")
         for ip, count in ip_counter.most_common(15):
             geo = geo_data.get(ip, {})
@@ -361,32 +402,44 @@ def write_report(output_dir, ip_counter, num_sessions, login_data,
         # Credenciales
         f.write("─── TOP 10 USUARIOS ───\n\n")
         for user, count in login_data["usernames"].most_common(10):
-            f.write(f"  {user:<25} {count:>6} intentos\n")
+            f.write(f"  {etiqueta(user):<25} {count:>6} intentos\n")
         f.write("\n")
 
         f.write("─── TOP 10 CONTRASEÑAS ───\n\n")
         for pwd, count in login_data["passwords"].most_common(10):
-            f.write(f"  {pwd:<25} {count:>6} intentos\n")
+            f.write(f"  {etiqueta(pwd):<25} {count:>6} intentos\n")
         f.write("\n")
 
         f.write("─── TOP 10 COMBINACIONES USUARIO:CONTRASEÑA ───\n\n")
         for (user, pwd), count in login_data["credentials"].most_common(10):
-            f.write(f"  {user}:{pwd:<30} {count:>6} intentos\n")
+            par = f"{etiqueta(user)} : {etiqueta(pwd)}"
+            f.write(f"  {par:<40} {count:>6} intentos\n")
         f.write("\n")
 
         # Comandos
         f.write("─── TOP 15 COMANDOS EJECUTADOS ───\n\n")
         for cmd, count in cmd_counter.most_common(15):
-            f.write(f"  {count:>6}x  {cmd}\n")
+            f.write(f"  {count:>6}x  {una_linea(cmd, 110)}\n")
         f.write("\n")
 
-        # Descargas
-        if download_urls:
-            f.write("─── DESCARGAS DE MALWARE ───\n\n")
-            for url, count in download_urls.most_common():
-                sha = download_shasums.get(url, "N/A")
-                f.write(f"  {count:>4}x  {url}\n")
-                f.write(f"        SHA256: {sha}\n")
+        # Ficheros capturados (IOC por hash)
+        if ficheros:
+            f.write("─── FICHEROS CAPTURADOS (IOC: hash SHA-256) ───\n\n")
+            orden = sorted(ficheros.items(), key=lambda kv: -kv[1]["veces"])
+            for sha, x in orden:
+                tipos = ", ".join(f"{t} {n}x" for t, n in x["tipos"].most_common())
+                f.write(f"  {x['veces']:>5}x  {sha}\n")
+                f.write(f"          {tipos} · {len(x['ips'])} IPs · primera vez {x['primera'][:16]}\n")
+                for origen, n in x["origenes"].most_common(2):
+                    f.write(f"          {una_linea(origen, 90)}  ({n}x)\n")
+            f.write("\n")
+
+        # Clientes SSH
+        if clientes:
+            f.write("─── CLIENTES SSH (software que declara el atacante) ───\n\n")
+            total_cli = sum(clientes.values())
+            for cli, n in clientes.most_common(10):
+                f.write(f"  {n:>6}  {n / total_cli * 100:5.1f} %  {una_linea(cli, 60)}\n")
             f.write("\n")
 
         # URLs en comandos (IOC aunque la descarga fallara)
@@ -408,13 +461,13 @@ def write_report(output_dir, ip_counter, num_sessions, login_data,
                 f.write(f"               {t['sesiones']} sesiones · {t['ejecuciones']} eventos · "
                         f"{t['ips']} IPs\n")
                 for ej, n in t["ejemplos"][:2]:
-                    f.write(f"               ej.: {ej[:70]}  ({n}x)\n")
+                    f.write(f"               ej.: {una_linea(ej, 70)}  ({n}x)\n")
                 f.write(f"               Recomendación: {t['recomendacion']}\n")
             f.write("\n")
         if sin_clasificar:
             f.write("─── COMANDOS SIN TÉCNICA ASIGNADA (revisión manual) ───\n\n")
             for cmd, n in sin_clasificar.most_common(15):
-                f.write(f"  {n:>6}x  {cmd}\n")
+                f.write(f"  {n:>6}x  {una_linea(cmd, 110)}\n")
             f.write("\n")
 
         f.write("=" * 70 + "\n")
@@ -430,7 +483,7 @@ def write_mitre_csv(mitre, path):
         w.writerow(["Táctica", "ID", "Técnica", "Sesiones", "Eventos", "IPs",
                     "Ejemplo", "Recomendación"])
         for t in mitre:
-            ejemplo = t["ejemplos"][0][0] if t["ejemplos"] else ""
+            ejemplo = una_linea(t["ejemplos"][0][0], 200) if t["ejemplos"] else ""
             w.writerow([t["tactica"], t["id"], t["nombre"], t["sesiones"], t["ejecuciones"],
                         t["ips"], ejemplo, t["recomendacion"]])
     print(f"  Tabla MITRE guardada: {path}")
@@ -499,10 +552,12 @@ def main():
 
     print("\n[4/6] Analizando comandos y descargas...")
     cmd_counter = analyze_commands(events)
-    download_urls, download_shasums = analyze_downloads(events)
+    ficheros = analyze_files(events)
+    clientes = analyze_clients(events)
     command_urls = analyze_command_urls(events)
-    print(f"  {sum(cmd_counter.values())} comandos, {sum(download_urls.values())} descargas, "
-          f"{len(command_urls)} URLs distintas en comandos")
+    print(f"  {sum(cmd_counter.values())} comandos, "
+          f"{sum(x['veces'] for x in ficheros.values())} ficheros capturados "
+          f"({len(ficheros)} distintos), {len(command_urls)} URLs distintas en comandos")
 
     mitre, sin_clasificar = mapear(events)
     tacticas = sorted({t["tactica"] for t in mitre})
@@ -555,7 +610,7 @@ def main():
     print("\nGenerando informe de resumen...")
     write_report(
         args.output, ip_counter, num_sessions, login_data,
-        cmd_counter, download_urls, download_shasums,
+        cmd_counter, ficheros, clientes,
         daily, geo_data, command_urls, mitre, sin_clasificar
     )
 

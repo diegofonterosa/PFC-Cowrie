@@ -1,6 +1,10 @@
-﻿# Logs reales de Cowrie
+# Logs reales de Cowrie
 logs/*.json
 logs/*.json.*
+# Descargas del servidor: llevan IPs de atacantes y la del administrador
+logs/real/
+analisis/
+*.tgz
 !logs/sample/
 
 # Salida temporal
