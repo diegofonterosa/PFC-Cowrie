@@ -162,6 +162,29 @@ def analyze_files(events):
     return ficheros
 
 
+def analyze_hassh(events):
+    """Huella HASSH del cliente SSH (algoritmos que ofrece al negociar).
+
+    Dos IPs con la misma huella usan la misma herramienta: permite agrupar
+    en una sola campana conexiones que llegan desde direcciones distintas.
+    Devuelve {hassh: {"sesiones", "ips", "primera", "ultima", "cliente"}}.
+    """
+    version = {e.get("session"): e.get("version", "") for e in
+               filter_events(events, "cowrie.client.version")}
+    datos = {}
+    for e in filter_events(events, "cowrie.client.kex"):
+        h = e.get("hassh")
+        if not h:
+            continue
+        d = datos.setdefault(h, {"sesiones": 0, "ips": set(), "primera": e.get("timestamp", ""),
+                                 "ultima": "", "cliente": Counter()})
+        d["sesiones"] += 1
+        d["ips"].add(e.get("src_ip"))
+        d["ultima"] = e.get("timestamp", "")
+        d["cliente"][version.get(e.get("session"), "")] += 1
+    return datos
+
+
 def analyze_clients(events):
     """Software cliente SSH declarado por cada conexion (huella del bot)."""
     return Counter(e.get("version", "") for e in filter_events(events, "cowrie.client.version"))
@@ -359,7 +382,8 @@ def plot_countries(conexiones, ips, filename, top_n=10):
 # ─── Informe en texto ─────────────────────────────────────────────────
 def write_report(output_dir, ip_counter, num_sessions, login_data,
                  cmd_counter, ficheros, clientes,
-                 daily, geo_data, command_urls=None, mitre=None, sin_clasificar=None):
+                 daily, geo_data, command_urls=None, mitre=None, sin_clasificar=None,
+                 huellas=None):
     """Genera un resumen en texto plano."""
     path = os.path.join(output_dir, "informe_resumen.txt")
     with open(path, "w", encoding="utf-8") as f:
@@ -446,6 +470,16 @@ def write_report(output_dir, ip_counter, num_sessions, login_data,
             total_cli = sum(clientes.values())
             for cli, n in clientes.most_common(10):
                 f.write(f"  {n:>6}  {n / total_cli * 100:5.1f} %  {una_linea(cli, 60)}\n")
+            f.write("\n")
+
+        # Huellas HASSH: herramientas concretas detras de varias IPs
+        if huellas:
+            f.write("─── HUELLAS HASSH (misma huella = misma herramienta) ───\n\n")
+            orden = sorted(huellas.items(), key=lambda kv: -kv[1]["sesiones"])
+            for h, d in orden[:8]:
+                cli = d["cliente"].most_common(1)[0][0] if d["cliente"] else ""
+                f.write(f"  {h}  {d['sesiones']:>7} sesiones · {len(d['ips']):>4} IPs · "
+                        f"{d['primera'][:16]} → {d['ultima'][:16]} · {una_linea(cli, 30)}\n")
             f.write("\n")
 
         # URLs en comandos (IOC aunque la descarga fallara)
@@ -561,6 +595,7 @@ def main():
     cmd_counter = analyze_commands(events)
     ficheros = analyze_files(events)
     clientes = analyze_clients(events)
+    huellas = analyze_hassh(events)
     command_urls = analyze_command_urls(events)
     print(f"  {sum(cmd_counter.values())} comandos, "
           f"{sum(x['veces'] for x in ficheros.values())} ficheros capturados "
@@ -619,7 +654,7 @@ def main():
     write_report(
         args.output, ip_counter, num_sessions, login_data,
         cmd_counter, ficheros, clientes,
-        daily, geo_data, command_urls, mitre, sin_clasificar
+        daily, geo_data, command_urls, mitre, sin_clasificar, huellas
     )
 
     print(f"\n✓ Análisis completo. Resultados en: {args.output}/\n")
