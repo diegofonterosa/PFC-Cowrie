@@ -116,7 +116,7 @@ REGLAS = [
      r"\brm\s+-\w*f\w*\s+(\S*/tmp/|/bin/|/dev/shm/|~/)",
      "M1029 Remote Data Storage; control de integridad (FIM) en /bin y /tmp."),
     ("T1497.001", "Virtualization/Sandbox Evasion: System Checks", "Defense Evasion",
-     r"echo\s+\\?\"?x{6}|SHELL_BEHAVIOR|\./x{6}",
+     r"echo\s+\\?\"?x{6}|SHELL_BEHAVIOR|\./x{6}|echo\s+xsec\b",
      "Sin mitigacion en ATT&CK (abusa de funciones del sistema). Es un indicio de "
      "bot que comprueba si esta en un honeypot: sirve para mejorar su realismo."),
 

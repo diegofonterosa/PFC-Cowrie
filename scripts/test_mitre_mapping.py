@@ -27,7 +27,9 @@ CASOS = {
     "ls -la ~/.local/share/TelegramDesktop/tdata /var/spool/sms/* /var/log/smsd.log": {"T1083", "T1005"},
     "locate D877F783D5D3EF8Cs": {"T1005"},
     "cat /dev/null > /var/log/wtmp": {"T1070.002"},
+    "echo xsec": {"T1497.001"},
     # Falsos positivos que no deben clasificarse
+    "echo xsecurity": set(),
     "hostnamectl": {"T1082"},
     "cd ~ && rm -rf .ssh && mkdir .ssh": set(),
     # Comandos tipicos de bots
