@@ -10,15 +10,21 @@ Despliegue de un honeypot SSH expuesto a Internet utilizando [Cowrie](https://gi
 
 ## Resultados principales
 
-Honeypot en producción desde el **4 de octubre de 2026**. Periodo de captura: un mes (hasta el 1 de noviembre de 2026).
+Honeypot en producción desde el **4 de octubre de 2026**. Periodo de captura analizado: **28 días**, hasta el 1 de noviembre de 2026.
 
 | Indicador | Valor |
 |---|---|
-| Conexiones en las primeras 72 horas | 13.761 |
-| IP únicas en las primeras 72 horas | 499 |
+| Sesiones registradas | 216.222 desde 4.028 IP únicas de 119 países |
+| Intentos de login | 199.530 (93.830 aceptados por la política del señuelo, 47,0 %) |
+| Comandos ejecutados | 102.743 (en el 34,7 % de las sesiones) |
+| Ficheros capturados | 7.231 eventos, 56 ficheros distintos y 13 URL |
+| Técnicas MITRE ATT&CK | 24 técnicas en 9 tácticas |
+| Clientes SSH | El 87,8 % de las conexiones declara `SSH-2.0-Go` |
+| Origen | El 79,5 % de las IP aparece un solo día |
 | Mayor campaña detectada (10–11 oct.) | 21.919 sesiones desde 38 IP con la misma huella HASSH |
 | Contraseñas distintas probadas contra `root` en esa campaña | 9.919 |
-| Casos de prueba del clasificador MITRE ATT&CK | 50 |
+| Casos de prueba del clasificador MITRE ATT&CK | 52 (52/52 correctos) |
+| Wazuh (muestra de 26.581 eventos, 7 reglas propias) | 20.988 alertas (79,0 %) |
 
 ### Campañas identificadas
 
@@ -27,7 +33,7 @@ Honeypot en producción desde el **4 de octubre de 2026**. Periodo de captura: u
 - **Campaña de verificación de credenciales (10–11 oct.):** una sola herramienta, identificada por su huella HASSH, repartida entre 38 IP.
 - **Verificador `echo xsec`:** campaña más pequeña que comprueba si el acceso es válido antes de continuar.
 
-> Las cifras son preliminares y corresponden a las primeras semanas. La tabla de técnicas MITRE ATT&CK, las gráficas y el análisis de los 28 días completos se publicarán al cerrar el periodo de captura (noviembre de 2026).
+> El análisis completo, con la tabla de técnicas MITRE ATT&CK, los indicadores de compromiso y las recomendaciones defensivas, está en la memoria del proyecto.
 
 ## Estado del proyecto
 
@@ -35,10 +41,11 @@ Honeypot en producción desde el **4 de octubre de 2026**. Periodo de captura: u
 |---|---|
 | Servidor cloud, hardening y firewall | Operativo |
 | Cowrie 3.1.0 bajo systemd (puerto 22 → 2222) | Operativo desde el 4 de octubre |
-| Analizador en Python y clasificador MITRE (50 pruebas) | Terminado |
+| Analizador en Python y clasificador MITRE (52 pruebas) | Terminado |
 | Pruebas funcionales (escaneo con nmap y ataque controlado desde Kali) | Realizadas |
-| Análisis final de 28 días e informe de inteligencia | En curso |
-| Integración con Wazuh | Instalado; ingesta de los logs de Cowrie prevista |
+| Análisis final de 28 días e informe de inteligencia | Completado |
+| Integración con Wazuh | Probada en local con una muestra de logs; integración continua como trabajo futuro |
+| Memoria y depósito final | En curso (depósito el 7 de diciembre) |
 
 Los logs reales y las IP de los atacantes no se publican en este repositorio.
 
@@ -48,7 +55,7 @@ Los logs reales y las IP de los atacantes no se publican en este repositorio.
 - **Firewall:** Hetzner Cloud Firewall (entrada: TCP 22 abierto, TCP 2022 solo desde la IP del administrador e ICMP) + iptables en el servidor
 - **Honeypot:** Cowrie escuchando en el puerto 22 (redirección NAT 22 → 2222 con iptables)
 - **SSH de administración:** puerto 2022, restringido a la IP del administrador, acceso exclusivo por clave y sin root
-- **Laboratorio local:** VirtualBox con Wazuh 4.9.2 (SIEM, instalado; ingesta de logs prevista) y Kali Linux (ataque controlado)
+- **Laboratorio local:** VirtualBox con Wazuh 4.9.2 (SIEM, probado con una muestra de logs) y Kali Linux (ataque controlado)
 
 El anteproyecto preveía Oracle Cloud Always Free; se cambió a Hetzner por falta de capacidad en la región de Oracle. Los scripts de `config/` son válidos para ambos proveedores.
 
@@ -66,8 +73,7 @@ PFC-Cowrie/
 │   ├── fase2-hardening/
 │   ├── fase3-cowrie/
 │   ├── fase4-captura/
-│   ├── fase5-analisis/
-│   └── fase6-informe/
+│   └── fase5-analisis/
 └── graficas/          # Gráficas generadas por el script de análisis
 ```
 
@@ -104,7 +110,7 @@ El script genera:
 
 - **Cowrie** — honeypot SSH/Telnet de media interacción
 - **Python 3** — análisis de logs (json, collections, matplotlib)
-- **Wazuh 4.9.2** — SIEM para ingesta y visualización (opcional; instalado, ingesta de logs prevista)
+- **Wazuh 4.9.2** — SIEM para ingesta y visualización (opcional; probado en local con una muestra de logs)
 - **MITRE ATT&CK** — marco de referencia para clasificación de actividad
 - **ip-api.com / GeoLite2** — geolocalización de IPs atacantes
 
